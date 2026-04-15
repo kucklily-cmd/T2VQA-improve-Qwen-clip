@@ -121,16 +121,14 @@ class T2VDataset(Dataset):
         video = video.permute(3, 0, 1, 2) # [C, T, H, W]
         
         # ==========================================================
-        # 1. 基础视觉分支处理 (用于 CLIP 和 SlowFast)
+        # 1. 基础视觉分支处理 (用于 CLIP 语义分支 和 Swin3D 技术分支)
         # ==========================================================
-        # 直接暴力缩放到 224x224 (可能会导致拉伸变形，但保留了画面边缘的所有信息)
         video_base = torch.nn.functional.interpolate(video, size=(self.size, self.size))
         vfrag_base = ((video_base.permute(1, 2, 3, 0) - self.mean) / self.std).permute(3, 0, 1, 2)
 
         # ==========================================================
-        # 2. 核心适配：美学分支专用视频 (保持宽高比的裁剪)
+        # 2. 美学/保真分支处理 (用于 ConvNeXt3D, 保持宽高比的裁剪)
         # ==========================================================
-        # 美学特征极度依赖未被破坏的原始画面比例，因此采用 CenterCrop 保持画面比例不失真
         H, W = video.shape[2], video.shape[3]
         min_dim = min(H, W)
         crop_h = (H - min_dim) // 2
@@ -142,8 +140,8 @@ class T2VDataset(Dataset):
         vfrag_aes = ((video_aes.permute(1, 2, 3, 0) - self.mean) / self.std).permute(3, 0, 1, 2)
 
         data = {
-            "video": vfrag_base,             # 供 CLIP 和 SlowFast 使用
-            "video_aesthetic": vfrag_aes,    # 供 ConvNeXt(美学分支) 独享使用
+            "video": vfrag_base,             # 供 CLIP + Swin3D 使用
+            "video_aesthetic": vfrag_aes,    # 供 ConvNeXt3D (保真分支) 使用
             "prompt": prompt,
             "frame_inds": frame_inds,
             "gt_label": label,
