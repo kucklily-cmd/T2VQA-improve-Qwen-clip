@@ -1,13 +1,13 @@
-name: AIGCVideoQA
+name: T2VQA
 num_epochs: 30
 warmup_epochs: 2.5
 save_model: true
-batch_size: 4
+batch_size: 4  # 【注意】Qwen-7B + Swin3D 显存占用较大，如果 OOM 请改为 2
 num_workers: 8
 split_seed: 1
 
 wandb:
-    project_name: AIGCVideoQA
+    project_name: T2VQA
 
 data:   
     train:
@@ -17,8 +17,8 @@ data:
             anno_file: /data/TeamMember/lm/sy/project/info.txt
             data_prefix: /data/TeamMember/lm/sy/project/T2VQA-DB
             size: 224
-            clip_len: 8
-            frame_interval: 2
+            clip_len: 16       # AI生成视频16帧
+            frame_interval: 1  # 16帧视频间隔设1，确保采完整段
 
     eval:
         type: T2VDataset
@@ -27,8 +27,8 @@ data:
             anno_file: /data/TeamMember/lm/sy/project/info.txt
             data_prefix: /data/TeamMember/lm/sy/project/T2VQA-DB
             size: 224
-            clip_len: 8
-            frame_interval: 2
+            clip_len: 16
+            frame_interval: 1
 
     t2v:
         type: T2VDataset
@@ -37,34 +37,43 @@ data:
             anno_file: /data/TeamMember/lm/sy/project/info.txt
             data_prefix: /data/TeamMember/lm/sy/project/T2VQA-DB
             size: 224
-            clip_len: 8
-            frame_interval: 2
+            clip_len: 16
+            frame_interval: 1
 
 model:
     args:
         # 基础参数
         image_size: 224
-        clip_len: 8
+        clip_len: 16  # 与 data 里的 clip_len 一致
 
-        # 1. 语言模型 (Qwen2.5-7B + LoRA)
+        # 1. 语言模型 (Qwen)
+        # 【必须修改】替换为本地 Qwen2.5-7B-Instruct 路径
         llm_model: /home/sy/.cache/modelscope/hub/models/Qwen/Qwen2.5-7B-Instruct
-
-        # 2. 共享 CLIP ViT-L (语义分支 + CrossGating anchor)
+        
+        # 2. 语义分支 (CLIP ViT-L/14, 冻结)
         clip_weights: /home/sy/.cache/modelscope/hub/models/AI-ModelScope/clip-vit-large-patch14
-
-        # 3. Swin3D 技术分支 (帧数适配: window_size temporal=4 for 8-frame input)
-        swin_window_size: [4, 7, 7]
-        # swin_pretrained_2d: null   # 可选：填入 Swin-T 2D ImageNet 预训练权重路径
-
-        # 4. ConvNeXt3D 美学分支
-        conv_pretrained: true        # 从 ImageNet 预训练初始化
-        conv_in_22k: false
-
-        # 5. COVER 预训练权重 (可选：加载 COVER fidelity 分支的预训练参数)
-        cover_weights: /data/TeamMember/lm/sy/project/models/COVER.pth
-
+        
+        # 3. 保真分支 (Swin3D from COVER)
+        swin_window_size: [4, 7, 7]       # 时间窗口=4 适配16帧 (16/patch2=8, 8/window4=2组)
+        # swin_pretrained_2d: null         # 可选：填入 Swin-Tiny 2D ImageNet 权重路径
+        
+        # 4. COVER 预训练权重 (可选，用于初始化保真分支)
+        # 【注意】形状不匹配的参数（如时序position bias）会自动跳过
+        cover_weights: /data/TeamMember/lm/sy/project/models/COVER.pth 
+            
 optimizer:
     lr: !!float 1e-5
     wd: 0.05
-        
-test_load_path: "pretrained_weights/AIGCVideoQA_head_t2v_0_eval_s_finetuned.pth"
+
+# ---------------------------------------------------------------
+# Loss hyper-parameters for composite_loss()
+#   lambda_rank: weight for ranking loss on final_score (keeps relative ordering)
+#   lambda_aux:  weight for auxiliary PLCC on each individual branch
+#                (prevents one branch from dominating; both branches share the
+#                 same GT label since T2VQA-DB provides a single holistic score)
+# ---------------------------------------------------------------
+loss:
+    lambda_rank: 0.3
+    lambda_aux: 0.2
+
+test_load_path: "/data/TeamMember/lm/sy/project/models/T2VQA-main/pretrained_weights/twoBranch.pth"

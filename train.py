@@ -111,7 +111,8 @@ PROMPT_TEMPLATE = (
 )
 
 
-def finetune_epoch(ft_loader, model, optimizer, scheduler, device, epoch=-1):
+def finetune_epoch(ft_loader, model, optimizer, scheduler, device, epoch=-1,
+                   lambda_rank=0.3, lambda_aux=0.2):
     model.train()
     total_loss = 0.0
 
@@ -120,8 +121,6 @@ def finetune_epoch(ft_loader, model, optimizer, scheduler, device, epoch=-1):
 
         inputs = {}
         inputs["video"] = data["video"].to(device)
-        if "video_aesthetic" in data:
-            inputs["video_aesthetic"] = data["video_aesthetic"].to(device)
 
         y = data["gt_label"].float().detach().to(device)
         caption = data['prompt']
@@ -129,7 +128,8 @@ def finetune_epoch(ft_loader, model, optimizer, scheduler, device, epoch=-1):
         final_score, semantic_score, fidelity_score = model(
             inputs, caption=caption, prompt=PROMPT_TEMPLATE)
 
-        loss = composite_loss(final_score, semantic_score, fidelity_score, y)
+        loss = composite_loss(final_score, semantic_score, fidelity_score, y,
+                              lambda_rank=lambda_rank, lambda_aux=lambda_aux)
 
         loss.backward()
         optimizer.step()
@@ -154,8 +154,6 @@ def inference_set(
         inputs = {}
 
         inputs['video'] = data['video'].to(device)
-        if "video_aesthetic" in data:
-            inputs["video_aesthetic"] = data["video_aesthetic"].to(device)
 
         with torch.no_grad():
             caption = data['prompt']
@@ -188,10 +186,10 @@ def inference_set(
             for key, v in state_dict.items():
                 if any(t in key for t in [
                     "qformer", "lora",
-                    "technical_backbone", "aesthetic_backbone",
+                    "technical_backbone",
                     "clip_to_anchor",
-                    "cross_gate_tech", "cross_gate_aes",
-                    "technical_head", "aesthetic_head",
+                    "cross_gate_tech",
+                    "technical_head",
                     "fusion_head",
                 ]):
                     head_state_dict[key] = v
@@ -279,15 +277,22 @@ def main():
 
         # ---- Trainable parameter groups ----
         # Trainable: qformer, lora, fidelity branch (Swin3D, ConvNeXt3D,
-        #            cross gates, heads), clip_to_anchor, fusion_head
+        # Trainable: qformer, lora, COVER fidelity branch (both Swin3D + ConvNeXt3D
+        #            sub-branches, cross gates, heads), clip_to_anchor, fusion_head
         # Frozen:    CLIP, Qwen base
         param_groups = []
         trainable_keywords = [
             "qformer", "lora",
-            "technical_backbone", "aesthetic_backbone",
+            # COVER technical sub-branch
+            "technical_backbone",
+            "cross_gate_tech",
+            "technical_head",
+            # COVER aesthetic sub-branch
+            "aesthetic_backbone",
+            "cross_gate_aes",
+            "aesthetic_head",
+            # shared
             "clip_to_anchor",
-            "cross_gate_tech", "cross_gate_aes",
-            "technical_head", "aesthetic_head",
             "fusion_head",
         ]
         for name, param in model.named_parameters():
@@ -344,13 +349,17 @@ def main():
             print(f"[*] Resumed from epoch {checkpoint['epoch']}, next: {start_epoch}\n")
 
         # ---- Training loop ----
+        lambda_rank = opt.get('loss', {}).get('lambda_rank', 0.3)
+        lambda_aux  = opt.get('loss', {}).get('lambda_aux', 0.2)
+
         for epoch in range(start_epoch, opt["num_epochs"]):
             print(f"Epoch {epoch}:")
             epoch_train_loss = 0.0
 
             for key, train_loader in train_loaders.items():
                 epoch_train_loss = finetune_epoch(
-                    train_loader, model, optimizer, scheduler, device, epoch)
+                    train_loader, model, optimizer, scheduler, device, epoch,
+                    lambda_rank=lambda_rank, lambda_aux=lambda_aux)
 
             epoch_data = {"epoch": epoch, "train_loss": epoch_train_loss}
 

@@ -62,8 +62,6 @@ def inference_set(
         result = dict()
         inputs = {}
         inputs['video'] = data['video'].to(device)
-        if "video_aesthetic" in data:
-            inputs["video_aesthetic"] = data["video_aesthetic"].to(device)
 
         with torch.no_grad():
             caption = data['prompt']
@@ -93,10 +91,10 @@ def inference_set(
             head_state_dict = OrderedDict()
             trainable_keywords = [
                 "qformer", "lora",
-                "technical_backbone", "aesthetic_backbone",
+                "technical_backbone",
                 "clip_to_anchor",
-                "cross_gate_tech", "cross_gate_aes",
-                "technical_head", "aesthetic_head",
+                "cross_gate_tech",
+                "technical_head",
                 "fusion_head",
             ]
             for key, v in state_dict.items():
@@ -150,7 +148,9 @@ def main():
 
     state_dict = ckpt['state_dict'] if isinstance(ckpt, dict) and 'state_dict' in ckpt else ckpt
 
-    # Clean legacy keys
+    # Remove keys from truly legacy architectures (old T2VQA 3-branch model).
+    # COVER fidelity branch keys (aesthetic_backbone, cross_gate_aes,
+    # aesthetic_head, technical_backbone, etc.) are VALID and must be kept.
     keys_to_remove = [k for k in state_dict.keys()
                       if any(t in k for t in [
                           "finetune_Qformer", "blip", "gate_mixer",
