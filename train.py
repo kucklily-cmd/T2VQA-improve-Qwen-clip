@@ -5,7 +5,7 @@ import os
 import os.path as osp
 import argparse
 from scipy.stats import spearmanr, pearsonr
-from scipy.stats import kendalltau as kendallr
+from scipy.stats.stats import kendalltau as kendallr
 import numpy as np
 from time import time
 from tqdm import tqdm

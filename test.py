@@ -3,7 +3,7 @@ import random
 import os.path as osp
 import argparse
 from scipy.stats import spearmanr, pearsonr
-from scipy.stats import kendalltau as kendallr
+from scipy.stats.stats import kendalltau as kendallr
 import numpy as np
 from tqdm import tqdm
 import yaml
